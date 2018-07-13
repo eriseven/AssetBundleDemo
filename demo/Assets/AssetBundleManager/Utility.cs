@@ -33,14 +33,16 @@ namespace AssetBundles
                     return "iOS";
                 case BuildTarget.WebGL:
                     return "WebGL";
+#if !UNITY_5_4_OR_NEWER
                 case BuildTarget.WebPlayer:
                     return "WebPlayer";
+#endif
                 case BuildTarget.StandaloneWindows:
                 case BuildTarget.StandaloneWindows64:
                     return "Windows";
                 case BuildTarget.StandaloneOSXIntel:
                 case BuildTarget.StandaloneOSXIntel64:
-                case BuildTarget.StandaloneOSXUniversal:
+                case BuildTarget.StandaloneOSX:
                     return "OSX";
                 // Add more build targets for your own.
                 // If you add more targets, don't forget to add the same platforms to GetPlatformForAssetBundles(RuntimePlatform) function.
@@ -64,9 +66,11 @@ namespace AssetBundles
 #endif
                 case RuntimePlatform.WebGLPlayer:
                     return "WebGL";
+#if !UNITY_5_4_OR_NEWER
                 case RuntimePlatform.OSXWebPlayer:
                 case RuntimePlatform.WindowsWebPlayer:
                     return "WebPlayer";
+#endif
                 case RuntimePlatform.WindowsPlayer:
                     return "Windows";
                 case RuntimePlatform.OSXPlayer:

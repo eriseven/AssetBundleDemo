@@ -1,4 +1,38 @@
+/*  The AssetBundle Manager */
+
+// [downloading method selection]
+// AssetBundleManager(ABM) internally uses either WWW or UnityWebRequest to download AssetBundles.
+// By default, ABM will automatically select either one based on the version of the Unity runtime.
+//
+// - WWW
+//   For Unity5.3 and earlier PLUS Unity5.5.
+// - UnityWebRequest
+//   For Unity5.4 and later versions EXCEPT Unity5.5.
+//   UnityWebRequest class is officialy introduced since Unity5.4, it is intended to replace WWW.
+//   The primary advantage of UnityWebRequest is memory efficiency. It does not load entire
+//   AssetBundle into the memory while WWW does.
+//
+// For Unity5.5 we let ABM to use WWW since we observed a download failure case.
+// (https://bitbucket.org/Unity-Technologies/assetbundledemo/pull-requests/25)
+//
+// Or you can force ABM to use either method by setting one of the following symbols in
+// [Player Settings]-[Other Settings]-[Scripting Define Symbols] of each platform.
+//
+// - ABM_USE_WWW    (to use WWW)
+// - ABM_USE_UWREQ  (to use UnityWebRequest)
+
+#if !ABM_USE_WWW && !ABM_USE_UWREQ
+#if UNITY_5_4_OR_NEWER && !UNITY_5_5
+#define ABM_USE_UWREQ
+#else
+#define ABM_USE_WWW
+#endif
+#endif
+
 using UnityEngine;
+#if ABM_USE_UWREQ
+using UnityEngine.Networking;
+#endif
 #if UNITY_EDITOR
 using UnityEditor;
 #endif
@@ -160,8 +194,10 @@ namespace AssetBundles
         {
             if (Application.isEditor)
                 return "file://" +  System.Environment.CurrentDirectory.Replace("\\", "/"); // Use the build output folder directly.
+#if !UNITY_5_4_OR_NEWER
             else if (Application.isWebPlayer)
                 return System.IO.Path.GetDirectoryName(Application.absoluteURL).Replace("\\", "/") + "/StreamingAssets";
+#endif
             else if (Application.isMobilePlatform || Application.isConsolePlatform)
                 return Application.streamingAssetsPath;
             else // For standalone player.
@@ -187,6 +223,10 @@ namespace AssetBundles
         /// <example>
         public static void SetSourceAssetBundleURL(string absolutePath)
         {
+            if (absolutePath.StartsWith("/"))
+            {
+                absolutePath = "file://" + absolutePath;
+            }
             if (!absolutePath.EndsWith("/"))
             {
                 absolutePath += "/";
@@ -457,8 +497,6 @@ namespace AssetBundles
             }
             else
             {
-                WWW download = null;
-
                 if (!bundleBaseDownloadingURL.EndsWith("/"))
                 {
                     bundleBaseDownloadingURL += "/";
@@ -466,14 +504,43 @@ namespace AssetBundles
 
                 string url = bundleBaseDownloadingURL + assetBundleName;
 
-                // For manifest assetbundle, always download it as we don't have hash for it.
-                if (isLoadingAssetBundleManifest)
-                    download = new WWW(url);
-                else
-                    download = WWW.LoadFromCacheOrDownload(url, m_AssetBundleManifest.GetAssetBundleHash(assetBundleName), 0);
+#if ABM_USE_UWREQ
+                // If url refers to a file in StreamingAssets, use AssetBundle.LoadFromFileAsync to load.
+                // UnityWebRequest also is able to load from there, but we use the former API because:
+                // - UnityWebRequest under Android OS fails to load StreamingAssets files (at least Unity5.50 or less)
+                // - or UnityWebRequest anyway internally calls AssetBundle.LoadFromFileAsync for StreamingAssets files
+                if (url.StartsWith(Application.streamingAssetsPath)) {
+                    m_InProgressOperations.Add(new AssetBundleDownloadFileOperation(assetBundleName, url));
+                } else {
+                    UnityWebRequest request = null;
+                    if (isLoadingAssetBundleManifest) {
+                        // For manifest assetbundle, always download it as we don't have hash for it.
+#if UNITY_2018_1_OR_NEWER
+                        request = UnityWebRequestAssetBundle.GetAssetBundle(url);
+#else
+                        request = UnityWebRequest.GetAssetBundle(url);
+#endif
+                    } else {
 
+#if UNITY_2018_1_OR_NEWER
+                        request = UnityWebRequestAssetBundle.GetAssetBundle(url, m_AssetBundleManifest.GetAssetBundleHash(assetBundleName), 0);
+#else
+                        request = UnityWebRequest.GetAssetBundle(url, m_AssetBundleManifest.GetAssetBundleHash(assetBundleName), 0);
+#endif
+                    }
+                    m_InProgressOperations.Add(new AssetBundleDownloadWebRequestOperation(assetBundleName, request));
+                }
+#else
+                WWW download = null;
+                if (isLoadingAssetBundleManifest) {
+                    // For manifest assetbundle, always download it as we don't have hash for it.
+                    download = new WWW(url);
+                } else {
+                    download = WWW.LoadFromCacheOrDownload(url, m_AssetBundleManifest.GetAssetBundleHash(assetBundleName), 0);
+                }
                 m_InProgressOperations.Add(new AssetBundleDownloadFromWebOperation(assetBundleName, download));
-            }
+#endif
+                    }
             m_DownloadingBundles.Add(assetBundleName);
 
             return false;
